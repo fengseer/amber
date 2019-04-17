@@ -1,49 +1,31 @@
 package org.amber
 
-import org.apache.spark.SparkContext
-import org.apache.spark.graphx.util.GraphGenerators
-import org.apache.spark.graphx.{Edge, EdgeDirection, Graph, VertexId}
-import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
+
 
 object SparkTest {
 
   def main(args: Array[String]): Unit = {
-    val sc = new SparkContext("local[1]", "whitebox_test")
-    val edge = sc.textFile("/Users/sundays/dev/git/amber/graphx/src/main/resources/edge.data").map(line => {
-      val strings = line.split(",")
-      Edge(strings(0).toInt, strings(1).toInt, strings(3).toInt)
-    }).collect()
 
-    val vertex: Array[(VertexId, (String, String))] = sc.textFile("/Users/sundays/dev/git/amber/graphx/src/main/resources/vertex.data").map(line => {
-      val strings = line.split(",")
-      (strings(0).toLong, (strings(1), strings(2)))
-    }).collect()
-    val edgeRdd: RDD[Edge[Int]] = sc.parallelize(edge)
-    val vertexRDD: RDD[(VertexId, (String, String))] = sc.parallelize(vertex)
-    val graph: Graph[(String, String), Int] = Graph(vertexRDD, edgeRdd)
-    singleSource(sc)
-  }
 
-  def singleSource(sc: SparkContext): Unit = {
-    val graph: Graph[VertexId, Double] = GraphGenerators.logNormalGraph(sc, 10).mapEdges(e => e.attr.toDouble)
-    graph.edges.foreach(println)
+    val spark = SparkSession
+      .builder()
+      .appName("Spark SQL basic example")
+      .master("local")
+      .config("spark.some.config.option", "some-value")
+      .getOrCreate()
 
-    val sourceId = 4
-    val initialGraph: Graph[Double, Double] = graph.mapVertices((id, _) => {
-      if (id == sourceId) 0 else Double.PositiveInfinity
-    })
+    import spark.implicits._
 
-    val sssp = initialGraph.pregel(Double.PositiveInfinity, 10, EdgeDirection.Out)((id, dist, newDist) =>
-      math.min(dist, newDist),
-      triplet => {
-        if (triplet.srcAttr + triplet.attr < triplet.dstAttr) {
-          Iterator((triplet.dstId, triplet.srcAttr + triplet.attr))
-        } else {
-          Iterator.empty
-        }
-      }, (a, b) => math.min(a, b)
-    )
-    println(sssp.vertices.collect().mkString("\n"))
+    // [{"age":12,"name":"h2"},{"age":11,"name":"h1"}]›
+    val dataFrame = spark.read.json("/Users/sundays/dev/git/amber/graphx/src/main/resources/user.json")
+    dataFrame.printSchema()
+    dataFrame.createOrReplaceTempView("people")
+
+    spark.sql("select * from people").show(10)
+
+
+    spark.sql("select * from people").flatMap(row => row.getValuesMap(row.schema.fields.map(_.name))).foreach(println(_))
   }
 
 }
